@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+
+  <script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.7.3/nipplejs.js"></script>
+  <script src="https://static.robotwebtools.org/EaselJS/current/easeljs.js"></script>
+  <script src="https://static.robotwebtools.org/EventEmitter2/current/eventemitter2.min.js"></script>
+  <script src="https://static.robotwebtools.org/roslibjs/current/roslib.js"></script>
+  <script src="../build/ros2d.js"></script>
+
+  <script type="text/javascript" type="text/javascript">
+
+    var MAP_WIDTH = (window.innerWidth)*0.65;
+    var MAP_HEIGHT = window.innerHeight - (window.innerHeight)*0.08;
+
+    var ros = new ROSLIB.Ros({
+      url: 'ws://localhost:9090'
+    });
+
+    ros.on('connection', function () {
+      document.getElementById("status").innerHTML = "Connected";
+    });
+
+    ros.on('error', function (error) {
+      document.getElementById("status").innerHTML = "Error";
+    });
+
+    ros.on('close', function () {
+      document.getElementById("status").innerHTML = "Closed";
+    });
+
+
+    var txt_listener = new ROSLIB.Topic({
+      ros: ros,
+      name: '/txt_msg',
+      messageType: 'std_msgs/String'
+    });
+
+    txt_listener.subscribe(function (m) {
+      document.getElementById("msg").innerHTML = m.data;
+    });
+
+    cmd_vel_publisher = new ROSLIB.Topic({
+      ros: ros,
+      name: "/cmd_vel",
+      messageType: 'geometry_msgs/Twist'
+    });
+
+    move = function (linear, angular) {
+      var twist = new ROSLIB.Message({
+        linear: {
+          x: linear,
+          y: 0,
+          z: 0
+        },
+        angular: {
+          x: 0,
+          y: 0,
+          z: angular
+        }
+      });
+      cmd_vel_publisher.publish(twist);
+    }
+
+    createJoystick = function () {
+      // Create the main viewer.
+      var viewer = new ROS2D.Viewer({
+        divID : 'map',
+        width : MAP_WIDTH,
+        height : MAP_HEIGHT
+      });
+
+      // Setup the map client.
+      var gridClient = new ROS2D.OccupancyGridClient({
+        ros : ros,
+        rootObject : viewer.scene,
+        // Use this property in case of continuous updates
+        continuous: true
+      });
+
+      var options = {
+        zone: document.getElementById('zone_joystick'),
+        threshold: 0.1,
+        position: { left: 85 + '%' },
+        mode: 'static',
+        size: 150,
+        color: '#000000',
+      };
+      manager = nipplejs.create(options);
+
+      linear_speed = 0;
+      angular_speed = 0;
+
+      manager.on('start', function (event, nipple) {
+        timer = setInterval(function () {
+          move(linear_speed, angular_speed);
+        }, 25);
+      });
+
+      manager.on('move', function (event, nipple) {
+        max_linear = 0.2; // m/s
+        max_angular = 0.2; // rad/s
+        max_distance = 50.0; // pixels;
+        linear_speed = Math.sin(nipple.angle.radian) * max_linear * nipple.distance/max_distance;
+				angular_speed = -Math.cos(nipple.angle.radian) * max_angular * nipple.distance/max_distance;
+      });
+
+      manager.on('end', function () {
+        if (timer) {
+          clearInterval(timer);
+        }
+        self.move(0, 0);
+      });
+      // Scale the canvas to fit to the map
+      gridClient.on('change', function() {
+        viewer.scaleToDimensions(gridClient.currentGrid.width, gridClient.currentGrid.height);
+        viewer.shift(gridClient.currentGrid.pose.position.x, gridClient.currentGrid.pose.position.y);
+      });
+    }
+
+    window.onload = function () {
+      createJoystick();
+    }
+
+  </script>
+</head>
+
+<body>
+  <h4>Simple ROS User Interface</h4>
+  <p>Connection status: <span id="status"></span></p>
+  <p>Last message on /txt_msg: <span id="msg"></span></p>
+  <div id="zone_joystick" style="position: relative;"></div>
+  <div id="map"></div>
+</body>
+
+</html>
